@@ -1,13 +1,13 @@
 {
   "name": "google-geocoder-cli",
   "version": "0.0.0",
-  "main": "index.js",
   "repository": "git@github.com:gabrielflorit/google-geocoder-cli.git",
   "author": "Gabriel Florit <gabrielflorit@gmail.com>",
   "dependencies": {
     "@google/maps": "^0.4.3",
     "d3-dsv": "^1.0.7",
     "es6-promise-pool": "^2.5.0",
+    "lodash": "^4.17.4",
     "nedb": "^1.8.0",
     "yargs": "^9.0.1"
   },
