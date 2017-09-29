@@ -30,6 +30,8 @@ const db = new NeDB({ filename: 'geocode.nedb', autoload: true })
 // Read CSV.
 const rows = dsv.csvParse(fs.readFileSync(argv.f, 'utf8'))
 
+const pace = require('pace')(rows.length)
+
 const getCoords = response => {
   const coords = _.get(response, 'json.results[0].geometry.location')
   return _.values(coords).join(',')
@@ -40,6 +42,8 @@ let geocodeRequests = 0
 const geocodeRow = promiseThrottle(
   row => {
     const { address } = row
+
+    pace.op()
 
     // Look up the address in NeDB.
     db.find({ address }, function (err, docs) {
