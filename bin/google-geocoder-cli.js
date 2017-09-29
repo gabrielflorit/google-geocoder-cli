@@ -3,7 +3,7 @@
 const dsv = require('d3-dsv')
 const fs = require('fs')
 const NeDB = require('nedb')
-const PromisePool = require('es6-promise-pool')
+const promiseThrottle = require('p-throttle')
 const _ = require('lodash')
 
 const argv = require('yargs')
@@ -18,6 +18,7 @@ const argv = require('yargs')
   .alias('h', 'help')
   .demand(['i', 'k', 'f']).argv
 
+// Setup Google Maps connection.
 const googleMapsClient = require('@google/maps').createClient({
   clientId: argv.i,
   clientSecret: argv.k
@@ -29,81 +30,49 @@ const db = new NeDB({ filename: 'geocode.nedb', autoload: true })
 // Read CSV.
 const rows = dsv.csvParse(fs.readFileSync(argv.f, 'utf8'))
 
-const geocodedRows = []
+const getCoords = response => {
+  const coords = _.get(response, 'json.results[0].geometry.location')
+  return _.values(coords).join(',')
+}
 
 // Geocode a row. Returns a Promise.
 let geocodeRequests = 0
-const geocodeRow = function (row) {
-  return new Promise(function (resolve, reject) {
+const geocodeRow = promiseThrottle(
+  row => {
     const { address } = row
 
     // Look up the address in NeDB.
     db.find({ address }, function (err, docs) {
       // If there is an error, reject the promise;
       if (err) {
-        reject(err)
+        Promise.reject(err)
       } else if (docs.length) {
         // otherwise, if there is a match, resolve the promise;
-        resolve({ row, geocode: docs[0].response })
+        Promise.resolve({ ...row, geocode: getCoords(docs[0].response) })
       } else {
         // otherwise, geocode.
 
         googleMapsClient.geocode({ address }, function (err, response) {
           geocodeRequests++
           if (err) {
-            reject(err)
+            Promise.reject(err)
           } else {
             db.insert({ address, response })
-            resolve({ row, geocode: response })
+            Promise.resolve({ ...row, geocode: getCoords(response) })
           }
         })
       }
     })
-  })
-}
+  },
+  50,
+  1000
+)
 
-// Iterate over every row.
-let index = 0
-const promiseProducer = function () {
-  if (index < rows.length) {
-    return geocodeRow(rows[index++])
-  } else {
-    return null
-  }
-}
-
-// Set the concurrency.
-const concurrency = 1
-
-// Create the promise pool,
-const pool = new PromisePool(promiseProducer, concurrency)
-
-// listen to fulfilled,
-pool.addEventListener('fulfilled', e => {
-  const { row } = e.data.result
-  const coords = _.get(
-    e,
-    'data.result.geocode.json.results[0].geometry.location'
-  )
-
-  geocodedRows.push({
-    ...row,
-    geocode: _.values(coords).join(',')
-  })
-})
-
-// listen to rejection,
-pool.addEventListener('rejected', e => {
-  console.log(JSON.stringify(e.data.error, null, 2))
-})
-
-// and start.
-pool
-  .start()
-  .then(() => {
+Promise.all(rows.map(geocodeRow))
+  .then(all => {
     const filename = `geocoded-${argv.f}`
-    fs.writeFileSync(filename, JSON.stringify(geocodedRows, null, 2))
-    console.log(`Wrote ${geocodedRows.length} records to ${filename}.`)
+    fs.writeFileSync(filename, dsv.csvFormat(all))
+    console.log(`Wrote ${all.length} records to ${filename}.`)
     console.log(`Hit Google ${geocodeRequests} times.`)
   })
   .catch(e => {

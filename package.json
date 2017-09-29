@@ -6,9 +6,9 @@
   "dependencies": {
     "@google/maps": "^0.4.3",
     "d3-dsv": "^1.0.7",
-    "es6-promise-pool": "^2.5.0",
     "lodash": "^4.17.4",
     "nedb": "^1.8.0",
+    "p-throttle": "^1.1.0",
     "yargs": "^9.0.1"
   },
   "bin": {
