@@ -1,6 +1,6 @@
 {
   "name": "google-geocoder-cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "repository": "git@github.com:gabrielflorit/google-geocoder-cli.git",
   "author": "Gabriel Florit <gabrielflorit@gmail.com>",
   "dependencies": {
