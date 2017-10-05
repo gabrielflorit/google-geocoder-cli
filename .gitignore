@@ -1,4 +1,3 @@
 node_modules
 *.csv
-*.nedb
 .DS_Store
