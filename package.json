@@ -1,5 +1,6 @@
 {
   "name": "google-geocoder-cli",
+  "description": "Geocode a CSV of addresses, using Google Maps API.",
   "version": "1.0.1",
   "repository": "git@github.com:gabrielflorit/google-geocoder-cli.git",
   "author": "Gabriel Florit <gabrielflorit@gmail.com>",
