@@ -20,3 +20,7 @@ Options:
 ## install
 
 `npm install -g google-geocoder-cli`
+
+## related
+- https://github.com/gabrielflorit/file-geocoder
+- https://github.com/veltman/csvgeocode
