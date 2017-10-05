@@ -16,3 +16,7 @@ Options:
 `google-geocoder-cli -f phoenix.csv -i <ID> -k <KEY>`
 
 ![usage](https://user-images.githubusercontent.com/370976/31251141-fc64c07e-a9ea-11e7-9c73-479a461660ac.png)
+
+## install
+
+`npm install -g google-geocoder-cli`
