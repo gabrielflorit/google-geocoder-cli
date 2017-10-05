@@ -2,10 +2,16 @@
 
 const dsv = require('d3-dsv')
 const fs = require('fs')
-// const rethinkdbdash = require('rethinkdbdash')
-const r = require('rethinkdb')
+const NeDB = require('nedb')
 const _ = require('lodash')
 const pThrottle = require('p-throttle')
+
+const RATE = 50
+
+const getCoords = geocode =>
+  _.values(_.get(geocode, 'json.results[0].geometry.location', {})).join(',')
+
+const getStatus = geocode => _.get(geocode, 'json.status', '')
 
 const argv = require('yargs')
   .usage('Geocode a CSV of addresses, using Google Maps API.')
@@ -26,154 +32,83 @@ const googleMapsClient = require('@google/maps').createClient({
   clientSecret: argv.k,
   Promise,
   rate: {
-    limit: 50,
-  },
+    limit: RATE
+  }
 })
 
 // Read CSV.
 const rows = dsv.csvParse(fs.readFileSync(argv.f, 'utf8'))
+const pace = require('pace')(rows.length)
 
-// const pace = require('pace')(rows.length)
+// Connect to DB.
+const db = new NeDB({ filename: argv.f + '.nedb', autoload: true })
 
-// let r = rethinkdbdash()
-
-const DB_NAME = 'geocode'
-const TABLE_NAME = 'addresses'
-
-const connect = () =>
-  r.connect({ host: 'localhost', port: 28015 })
-
-// Create db and table if not present.
-const createDB = c =>
+const geocode = address =>
   new Promise((resolve, reject) => {
-    r.dbList().run(c)
-      .then(list => {
-        if (!list.includes(DB_NAME)) {
-          r.dbCreate(DB_NAME).run(c)
-            .then(() => resolve(c))
-            .catch(reject)
-        } else {
-          resolve(c)
-        }
-      })
-      .catch(reject)
-  })
-
-const useTable = c =>
-  new Promise((resolve, reject) => {
-    c.use(DB_NAME)
-    r.tableList().run(c)
-      .then(list => {
-        if (!list.includes(TABLE_NAME)) {
-          r.tableCreate(TABLE_NAME).run(c)
-            .then(() => resolve(c))
-            .catch(reject)
-        } else {
-          resolve(c)
-        }
-      })
-      .catch(reject)
-  })
-
-const geocode = ({ address, i }) =>
-  new Promise((resolve, reject) => {
-    googleMapsClient.geocode({ address }).asPromise()
+    googleMapsClient
+      .geocode({ address })
+      .asPromise()
       .then(geocode => {
-        const status = _.get(geocode, 'json.status', '')
+        geocodeRequests++
+        const status = getStatus(geocode)
         if (status === 'OK' || status === 'ZERO_RESULTS') {
           resolve(geocode)
         } else {
-          console.log(JSON.stringify(geocode, null, 2))
-          reject(`${i} error: status ${status} for ${address}`)
+          reject(new Error(status))
         }
-      }).catch(e => {
-        console.error(e)
-        console.error(`${i} error: could not geocode ${address}`)
-        reject(e)
       })
+      .catch(reject)
   })
 
-const processRow = ({ c, row, i }) =>
+const throttledGeocode = pThrottle(geocode, RATE, 1000)
+
+const processRow = (row, i) =>
   new Promise((resolve, reject) => {
-
     const { address } = row
-    r.table(TABLE_NAME).filter({ address }).run(c)
-      .then(cursor => {
-        cursor.toArray()
-          .then(results => {
-
-            if (results.length) {
-              console.log(`${i} - found ${address} in db`)
-              resolve(results[0])
-            } else {
-              geocode({ address, i }).then(geocode => {
-                geocodeRequests++
-                console.log(`      ${i} - geocoded ${address}`)
-                const doc = { address, geocode }
-                r.table(TABLE_NAME).insert(doc).run(c)
-                  .then(() => {
-                    console.log(`            ${i} - inserted ${address} in db`)
-                    resolve(doc)
-                  }).catch(e => {
-                    console.error(e)
-                    console.error('error trying to insert')
-                    reject(e)
-                  })
-              }).catch(e => {
-                console.error(e)
-                console.error('error trying to geocode')
-                reject(e)
-              })
+    db.find({ address }, (err, docs) => {
+      if (err) {
+        reject(err)
+      } else if (docs.length) {
+        pace.op()
+        resolve(docs[0])
+      } else {
+        throttledGeocode(address)
+          .then(geocode => {
+            const doc = {
+              address,
+              coords: getCoords(geocode),
+              status: getStatus(geocode)
             }
-
+            db.insert(doc, e => {
+              if (e) {
+                reject(e)
+              } else {
+                pace.op()
+                resolve(doc)
+              }
+            })
           })
-          .catch(e => {
-            console.error(e)
-            console.error('error trying to get cursor to array')
-            reject(e)
-          })
-
-
-      }).catch(e => {
-        console.error(e)
-        console.error('error trying to find in db')
-        reject(e)
-      })
-
+          .catch(reject)
+      }
+    })
   })
 
-connect()
-  .then(createDB)
-  .then(useTable)
-  .then(c => {
+const promises = rows.map(processRow)
 
-    // const throttle = pThrottle((row, i) => processRow({ row, i, c }), 50, 1000)
-    // const promises = rows.map(throttle)
-
-    const promises = rows.map((row, i) => processRow({ row, i, c }))
-
-    // const promises = [
-    //   { address: 'N 7TH AVE & W VAN BUREN ST, Phoenix, TX' }
-    // ].map(throttle)
-
-    Promise.all(promises)
-      .then(all => {
-
-        const results = _(all)
-          .map(d => ({
-            address: d.address,
-            coords: _.values(
-              _.get(d, 'geocode.json.results[0].geometry.location', {})).join(',')
-          }))
-          .value()
-
-        const filename = `geocoded-${argv.f}`
-        fs.writeFileSync(filename, dsv.csvFormat(results))
-        console.log(`Wrote ${all.length} records to ${filename}.`)
-        console.log(`Hit Google ${geocodeRequests} times.`)
-      })
-      .catch(e => {
-        console.error(e)
-      })
-
-  })
+db.ensureIndex({ fieldName: 'address' }, err => {
+  if (err) {
+    console.error(err)
+  } else {
+    Promise.all(promises).then(all => {
+      const filename = `geocoded-${argv.f}`
+      fs.writeFileSync(
+        filename,
+        dsv.csvFormat(all.map(d => _.omit(d, '_id')))
+      )
+      console.log(`Wrote ${all.length} records to ${filename}.`)
+      console.log(`Hit Google ${geocodeRequests} times.`)
+      console.log('Summary of geocode requests:')
+      console.log(JSON.stringify(_.countBy(all, 'status'), null, 2))
+    })
+  }
+})
