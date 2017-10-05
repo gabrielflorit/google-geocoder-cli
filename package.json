@@ -10,8 +10,6 @@
     "nedb": "^1.8.0",
     "p-throttle": "^1.1.0",
     "pace": "^0.0.4",
-    "rethinkdb": "^2.3.3",
-    "rethinkdbdash": "^2.3.31",
     "yargs": "^9.0.1"
   },
   "bin": {
