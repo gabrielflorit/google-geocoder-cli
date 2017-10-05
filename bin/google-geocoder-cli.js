@@ -54,7 +54,6 @@ const geocode = address =>
         if (status === 'OK' || status === 'ZERO_RESULTS') {
           resolve(geocode)
         } else {
-          console.log(JSON.stringify(geocode, null, 2))
           reject(new Error(status))
         }
       })
