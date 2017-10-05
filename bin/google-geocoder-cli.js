@@ -11,6 +11,8 @@ const RATE = 50
 const getCoords = geocode =>
   _.values(_.get(geocode, 'json.results[0].geometry.location', {})).join(',')
 
+const getStatus = geocode => _.get(geocode, 'json.status', '')
+
 const argv = require('yargs')
   .usage('Geocode a CSV of addresses, using Google Maps API.')
   .describe('i', 'client ID')
@@ -48,7 +50,7 @@ const geocode = address =>
       .asPromise()
       .then(geocode => {
         geocodeRequests++
-        const status = _.get(geocode, 'json.status', '')
+        const status = getStatus(geocode)
         if (status === 'OK' || status === 'ZERO_RESULTS') {
           resolve(geocode)
         } else {
@@ -73,7 +75,11 @@ const processRow = (row, i) =>
       } else {
         throttledGeocode(address)
           .then(geocode => {
-            const doc = { address, coords: getCoords(geocode) }
+            const doc = {
+              address,
+              coords: getCoords(geocode),
+              status: getStatus(geocode)
+            }
             db.insert(doc, e => {
               if (e) {
                 reject(e)
@@ -98,10 +104,12 @@ db.ensureIndex({ fieldName: 'address' }, err => {
       const filename = `geocoded-${argv.f}`
       fs.writeFileSync(
         filename,
-        dsv.csvFormat(all.map(d => _.pick(d, ['address', 'coords'])))
+        dsv.csvFormat(all.map(d => _.omit(d, '_id')))
       )
       console.log(`Wrote ${all.length} records to ${filename}.`)
       console.log(`Hit Google ${geocodeRequests} times.`)
+      console.log('Summary of geocode requests:')
+      console.log(JSON.stringify(_.countBy(all, 'status'), null, 2))
     })
   }
 })
